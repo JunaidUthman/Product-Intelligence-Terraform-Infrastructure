@@ -1,75 +1,74 @@
 # ==============================================================================
-# Security Group pour RDS MySQL
+# Module Sécurité : Security Group RDS (terraform-aws-modules/security-group/aws)
 # ==============================================================================
 
-resource "aws_security_group" "rds" {
+module "rds_security_group" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "~> 5.0"
+
   name        = "product-intelligence-rds-sg"
-  description = "Autorise le port MySQL 3306 depuis votre IP locale"
-  vpc_id      = aws_vpc.main.id
+  description = "Security group RDS autorisant le port 3306 depuis votre IP locale"
+  vpc_id      = module.vpc.vpc_id
 
-  # Accès entrant limité strictement à votre adresse IP publique
-  ingress {
-    description = "MySQL access from local developer machine"
-    from_port   = 3306
-    to_port     = 3306
-    protocol    = "tcp"
-    cidr_blocks = [var.my_ip_address]
-  }
+  # Accès entrant strictement restreint à votre adresse IP publique
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 3306
+      to_port     = 3306
+      protocol    = "tcp"
+      description = "MySQL access from local developer machine"
+      cidr_blocks = var.my_ip_address
+    }
+  ]
 
-  egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
-  }
+  egress_rules = ["all-all"]
 
   tags = {
-    Name = "product-intelligence-rds-sg"
+    Environment = var.environment
   }
 }
 
 # ==============================================================================
-# DB Subnet Group
+# Module Base de Données : RDS MySQL (terraform-aws-modules/rds/aws)
 # ==============================================================================
 
-resource "aws_db_subnet_group" "rds" {
-  name        = "product-intelligence-db-subnet-group"
-  description = "Subnet group pour RDS MySQL (subnets publics en Phase 1 pour accessibilite)"
-  subnet_ids  = aws_subnet.public[*].id
+module "db" {
+  source  = "terraform-aws-modules/rds/aws"
+  version = "~> 6.0"
 
-  tags = {
-    Name = "product-intelligence-db-subnet-group"
-  }
-}
+  identifier = "product-intelligence-mysql"
 
-# ==============================================================================
-# Instance RDS MySQL
-# ==============================================================================
+  engine               = "mysql"
+  engine_version       = "8.0"
+  family               = "mysql8.0" # Paramètre pour DB parameter group
+  major_engine_version = "8.0"      # Paramètre pour DB option group
+  instance_class       = var.db_instance_class
 
-resource "aws_db_instance" "mysql" {
-  identifier            = "product-intelligence-mysql"
-  engine                = "mysql"
-  engine_version        = "8.0"
-  instance_class        = var.db_instance_class
   allocated_storage     = var.db_allocated_storage
-  max_allocated_storage = 50
+  max_allocated_storage = 50 # Auto-scaling du stockage jusqu'à 50 Go
   storage_type          = "gp3"
 
   db_name  = var.db_name
   username = var.db_username
-  password = var.db_password
+  port     = 3306
 
-  # Phase 1 : accessible publiquement (restreint par le Security Group a votre IP)
+  manage_master_user_password = false
+  password                    = var.db_password
+
+  # Phase 1 : accessible publiquement depuis votre PC via l'Internet Gateway
   publicly_accessible = true
 
-  vpc_security_group_ids = [aws_security_group.rds.id]
-  db_subnet_group_name   = aws_db_subnet_group.rds.name
+  # Subnets publics pour la Phase 1 afin d'assurer le routage Internet direct
+  create_db_subnet_group = true
+  subnet_ids             = module.vpc.public_subnets
+
+  vpc_security_group_ids = [module.rds_security_group.security_group_id]
 
   skip_final_snapshot = true
   deletion_protection = false
 
   tags = {
-    Name = "product-intelligence-mysql"
+    Environment = var.environment
   }
 }
+

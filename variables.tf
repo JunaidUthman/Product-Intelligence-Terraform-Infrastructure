@@ -75,3 +75,10 @@ variable "my_ip_address" {
   type        = string
 }
 
+variable "private_dns_zone" {
+  description = "Nom de domaine pour la zone DNS privée Route 53 interne au VPC"
+  type        = string
+  default     = "product-intelligence.internal"
+}
+
+
