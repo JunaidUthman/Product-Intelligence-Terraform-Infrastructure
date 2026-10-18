@@ -63,3 +63,28 @@ output "external_database_url_local_dev" {
   value       = "mysql://${module.db.db_instance_username}:${var.db_password}@${module.db.db_instance_address}:${module.db.db_instance_port}/${module.db.db_instance_name}"
   sensitive   = true
 }
+
+# ==============================================================================
+# Sorties EKS & IAM (Pour kubectl et l'AWS Load Balancer Controller)
+# ==============================================================================
+
+output "cluster_name" {
+  description = "Nom du cluster EKS créé"
+  value       = module.eks.cluster_name
+}
+
+output "cluster_endpoint" {
+  description = "Endpoint API server du cluster EKS"
+  value       = module.eks.cluster_endpoint
+}
+
+output "configure_kubectl" {
+  description = "Commande pour configurer votre kubectl local vers le nouveau cluster EKS"
+  value       = "aws eks --region ${var.aws_region} update-kubeconfig --name ${module.eks.cluster_name}"
+}
+
+output "aws_lbc_role_arn" {
+  description = "ARN du rôle IAM IRSA pour l'AWS Load Balancer Controller"
+  value       = module.aws_lbc_irsa.iam_role_arn
+}
+

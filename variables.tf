@@ -37,7 +37,7 @@ variable "public_subnet_cidrs" {
 variable "private_subnet_cidrs" {
   description = "CIDR blocks des sous-réseaux privés (futur EKS)"
   type        = list(string)
-  default     = ["10.0.10.0/24", "10.0.11.0/24"]
+  default     = ["10.0.10.0/24", "10.0.11.0/24"] #ici, automatiquement le 1er element de la list(10.0.10.0/24) vas etre affecté au premier AZ crée(us-east-1a) etc
 }
 
 variable "db_name" {
@@ -80,5 +80,40 @@ variable "private_dns_zone" {
   type        = string
   default     = "product-intelligence.internal"
 }
+
+# ==============================================================================
+# Variables du Cluster Kubernetes (EKS)
+# ==============================================================================
+
+variable "kubernetes_version" {
+  description = "Version de Kubernetes pour le cluster EKS"
+  type        = string
+  default     = "1.30"
+}
+
+variable "eks_node_instance_types" {
+  description = "Types d'instances EC2 pour les nœuds de travail EKS"
+  type        = list(string)
+  default     = ["m7i-flex.large"]
+}
+
+variable "eks_node_desired_size" {
+  description = "Nombre désiré de nœuds de travail EKS"
+  type        = number
+  default     = 3
+}
+
+variable "eks_node_min_size" {
+  description = "Nombre minimum de nœuds de travail EKS"
+  type        = number
+  default     = 2
+}
+
+variable "eks_node_max_size" {
+  description = "Nombre maximum de nœuds de travail EKS (auto-scaling)"
+  type        = number
+  default     = 4
+}
+
 
 

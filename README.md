@@ -1,89 +1,100 @@
-# Infrastructure Cloud AWS (Terraform) — Phase 1
+# Infrastructure Cloud AWS (Terraform)
 
-Ce dossier contient la configuration **Terraform** pour déployer l'infrastructure Cloud AWS du projet **Product Intelligence**.
+Ce dossier contient la configuration **Terraform** complète pour déployer l'infrastructure Cloud AWS pour la plateforme **Product Intelligence**.
 
 ---
 
-## 🎯 Objectif de la Phase 1
+## 🏗️ Architecture déployée
 
-1. **Créer le VPC et les sous-réseaux (Publics et Privés)** :
-   * Tagués pour supporter le futur cluster EKS et l'**AWS Application Load Balancer (ALB)**.
-2. **Provisionner une base de données managée AWS RDS MySQL** :
-   * `publicly_accessible = true` temporairement.
-   * **Sécurisée** par un Security Group n'autorisant les connexions que depuis **votre adresse IP publique locale**.
-3. **Tester et valider la connexion** depuis votre setup local (Minikube / scripts de migration).
+```text
+product-intelligence-terraform-infrastructure/
+├── vpc.tf                   # VPC, Subnets publics/privés, NAT Gateway & tags ALB
+├── eks.tf                   # Cluster Kubernetes EKS (v1.30) & Managed Node Groups
+├── iam.tf                   # Rôles IAM IRSA (AWS Load Balancer Controller + EBS CSI)
+├── rds.tf                   # Base de données managée AWS RDS MySQL 8.0 & Security Groups
+├── dns.tf                   # Zone DNS privée Route 53 (db.product-intelligence.internal)
+├── variables.tf             # Variables configurables (Région, versions, tailles d'instances)
+├── outputs.tf               # Sorties utiles (kubectl config, endpoints, IAM roles)
+├── terraform.tfvars.example # Modèle pour renseigner vos variables secrètes
+├── .gitignore               # Protection contre le commit de tfstate et variables
+└── README.md                # Guide complet
+```
+
+---
+
+## 🎯 Composants créés
+
+1. **Réseau (VPC & Subnets) :**
+   * Multi-AZ avec sous-réseaux publics et privés.
+   * **Tags officiels pour l'ALB** : `kubernetes.io/role/elb = 1` et `kubernetes.io/cluster/realestate-prod-cluster = shared`.
+   * **Single NAT Gateway** : Partagée pour tous les sous-réseaux privés (permet aux nœuds EKS de télécharger les images tout en évitant de payer un NAT Gateway par AZ).
+
+2. **Cluster Kubernetes Managé (AWS EKS v1.30) :**
+   * Control Plane EKS managé avec accès public et privé.
+   * **EKS Access Entries** : Accès administrateur automatique sans fichier `aws-auth`.
+   * **Managed Node Group** : Instances EC2 situées dans les sous-réseaux privés (sécurisées contre tout accès direct depuis Internet).
+   * **Add-ons officiels** : CoreDNS, Kube-Proxy, VPC-CNI et AWS EBS CSI Driver (pour les volumes persistants).
+
+3. **Authentification IAM Cloud-Native (IRSA) :**
+   * **Rôle IAM pour AWS Load Balancer Controller** : Permet au contrôleur dans Kubernetes de provisionner et gérer automatiquement les Application Load Balancers sur AWS.
+   * **Rôle IAM pour AWS EBS CSI Driver** : Permet de créer dynamiquement des volumes EBS pour les PVCs de vos microservices et de Kubeflow.
+
+4. **Base de Données (AWS RDS MySQL 8.0) & Découverte DNS :**
+   * Instance `db.t4g.micro` avec stockage SSD `gp3` (20 Go, Free Tier éligible).
+   * **Sécurité Zero-Trust** : Le Security Group autorise directement le groupe de nœuds EKS sur le port 3306.
+   * **Route 53 Private DNS** : Résolution automatique via le nom permanent et fixe **`db.product-intelligence.internal`** pour vos pods Kubernetes.
 
 ---
 
 ## 🚀 Déploiement pas-à-pas
 
-### Étape 1 : Configurer vos identifiants AWS
-Assurez-vous que l'AWS CLI est configurée sur votre machine :
+### Étape 1 : Préparer vos variables
 ```bash
-aws sts get-caller-identity
+cp terraform.tfvars.example terraform.tfvars
 ```
+Renseignez dans `terraform.tfvars` :
+* Votre adresse IP publique (`curl -s ifconfig.me`)
+* Votre mot de passe de base de données `db_password`
 
-### Étape 2 : Préparer vos variables
-1. Copiez le fichier d'exemple :
-   ```bash
-   cp terraform.tfvars.example terraform.tfvars
-   ```
-2. Obtenez votre adresse IP publique :
-   ```bash
-   curl -s ifconfig.me
-   ```
-3. Éditez `terraform.tfvars` :
-   * Renseignez `my_ip_address = "<VOTRE_IP>/32"`
-   * Définissez un mot de passe sécurisé pour `db_password`.
-
-### Étape 3 : Initialiser et déployer avec Terraform
+### Étape 2 : Initialiser et déployer l'infrastructure
 ```bash
 terraform init
 terraform plan
 terraform apply
 ```
-*(La création du RDS MySQL prend généralement environ 5 à 7 minutes).*
+*(Le déploiement complet d'EKS et RDS prend généralement entre 10 et 15 minutes).*
 
 ---
 
-## 🔍 Récupérer les informations de connexion
+## 🔌 Connexion au Cluster EKS et Déploiement GitOps
 
-Une fois `terraform apply` terminé, Terraform affiche les sorties (*outputs*) :
+### 1. Configurer `kubectl` vers votre nouveau cluster AWS
+Terraform fournit la commande exacte dans ses sorties :
 ```bash
-terraform output rds_host
+$(terraform output -raw configure_kubectl)
+```
+Vérifiez que vous êtes connecté :
+```bash
+kubectl get nodes
 ```
 
-Pour afficher l'URL complète prête à l'emploi (avec le mot de passe) :
+### 2. Annoter le ServiceAccount de l'AWS Load Balancer Controller avec le rôle IAM
+Récupérez l'ARN du rôle IAM généré par Terraform :
 ```bash
-terraform output -raw database_url_example; echo
+terraform output -raw aws_lbc_role_arn
+```
+*(Cette valeur est à annoter sur le ServiceAccount `kube-system/aws-load-balancer-controller` ou directement dans `aws-lbc-manifest.yaml`).*
+
+### 3. Appliquer vos secrets
+Créez vos secrets sur le nouveau cluster dans le namespace `product-intelligence` :
+```bash
+kubectl apply -f ../product-intelligence-K8S-infrastructure/base/secrets.yaml
 ```
 
----
+### 4. Installer ArgoCD et déclencher le déploiement GitOps
+```bash
+kubectl apply -k ../product-intelligence-K8S-infrastructure/argocd/install/
+kubectl apply -f ../product-intelligence-K8S-infrastructure/argocd/root-app.yaml
+```
 
-## 🔄 Connecter votre cluster local (Minikube) à la base RDS
-
-Dans votre dossier `product-intelligence-K8S-infrastructure/base/` :
-
-1. **Mettre à jour `secrets.yaml` :**
-   Remplacer la valeur `DATABASE_URL` par l'URL fournie par Terraform :
-   ```yaml
-   DATABASE_URL: "mysql://appuser:<VOTRE_MOT_DE_PASSE>@<RDS_HOST>:3306/product_intelligence"
-   ```
-
-2. **Mettre à jour `configmap.yaml` :**
-   ```yaml
-   MYSQL_HOST: "<RDS_HOST>"
-   ```
-
-3. **Appliquer les secrets sur Minikube :**
-   ```bash
-   kubectl apply -f base/secrets.yaml
-   ```
-
-Votre plateforme locale écrit et lit désormais directement sur votre base AWS RDS dans le cloud !
-
----
-
-## ☕ Phase 2 (Prochaine étape)
-Une fois la base testée et validée, nous ajouterons les fichiers `eks.tf` et `iam.tf` pour déployer le cluster Kubernetes AWS managé et laisser ArgoCD orchestrer l'ensemble.
-
+ArgoCD prend alors le relais et déploie automatiquement l'ensemble de votre cluster en respectant toutes les vagues de synchronisation !

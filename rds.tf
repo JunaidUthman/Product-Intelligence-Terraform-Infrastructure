@@ -28,6 +28,19 @@ module "rds_security_group" {
   }
 }
 
+# BONNE PRATIQUE (Zero-Trust Security Group Chaining) :
+# Autorise directement les nœuds EKS à joindre MySQL sur le port 3306
+resource "aws_security_group_rule" "rds_from_eks_nodes" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = module.eks.node_security_group_id
+  security_group_id        = module.rds_security_group.security_group_id
+  description              = "Allow MySQL traffic from EKS worker nodes"
+}
+
+
 # ==============================================================================
 # Module Base de Données : RDS MySQL (terraform-aws-modules/rds/aws)
 # ==============================================================================

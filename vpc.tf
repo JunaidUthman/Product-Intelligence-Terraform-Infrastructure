@@ -16,10 +16,13 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # Optimisation des coûts Phase 1 (évite ~32$/mois par NAT Gateway)
-  enable_nat_gateway     = false
-  single_nat_gateway     = false
+  # BONNE PRATIQUE (EKS en subnets privés + optimisation des coûts) :
+  # Un seul NAT Gateway partagé pour tous les subnets privés (permet aux nœuds EKS
+  # de télécharger les images conteneurs et dépendances sans payer 32$/mois par AZ).
+  enable_nat_gateway     = true
+  single_nat_gateway     = true
   one_nat_gateway_per_az = false
+
 
   # Tags requis par AWS Load Balancer Controller pour les ALBs publics
   public_subnet_tags = {
