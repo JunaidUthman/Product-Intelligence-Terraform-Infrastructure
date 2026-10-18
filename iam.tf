@@ -18,7 +18,7 @@ module "aws_lbc_irsa" {
 
   oidc_providers = {
     main = {
-      provider_arn               = module.eks.oidc_provider_arn # Pointe vers l'URL d'identité de votre cluster EKS
+      provider_arn               = module.eks.oidc_provider_arn                 # Pointe vers l'URL d'identité de votre cluster EKS
       namespace_service_accounts = ["kube-system:aws-load-balancer-controller"] # Vous dites à AWS : "Même si le jeton d'authentification vient du bon cluster EKS, n'autorise l'accès qu'au Pod qui utilise le ServiceAccount nommé aws-load-balancer-controller et qui tourne strictement dans le namespace kube-system
     }
   }
@@ -43,8 +43,8 @@ module "ebs_csi_irsa" {
 
   oidc_providers = {
     main = {
-      provider_arn               = module.eks.oidc_provider_arn 
-      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"] 
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa"]
     }
   }
 
